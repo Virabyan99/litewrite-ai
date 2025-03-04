@@ -1,5 +1,7 @@
 import type { NextRequest } from 'next/server';
 
+export const runtime = 'edge';
+
 // Environment variables
 const GEMINI_API_URL = process.env.NEXT_PUBLIC_GEMINI_API_URL;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
