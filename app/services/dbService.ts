@@ -32,6 +32,18 @@ export async function getAllNotes(): Promise<Note[]> {
   return db.getAll('notes');
 }
 
+export async function replaceAllNotes(notes: Note[]): Promise<void> {
+    if (!dbPromise) return;
+    const db = await dbPromise;
+    const tx = db.transaction('notes', 'readwrite');
+    const store = tx.objectStore('notes');
+    await store.clear();
+    for (const note of notes) {
+      await store.put(note);
+    }
+    await tx.done;
+  }
+
 export async function saveNote(note: Note): Promise<void> {
   if (!dbPromise) return;
   const db = await dbPromise;

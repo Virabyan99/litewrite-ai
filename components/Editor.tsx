@@ -1,3 +1,4 @@
+// app/components/Editor.tsx
 "use client";
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -8,8 +9,9 @@ import {
   deleteNote,
   saveFontPreference,
   getFontPreference,
-} from "../app/services/dbService"; // Adjusted import path assuming app structure
+} from "../app/services/dbService"; // Adjusted path as per your code
 import FontSelector from "./FontSelector";
+import AIAssistant from "./AIAssistant"; // Import the new component
 
 interface Note {
   id: string;
@@ -98,17 +100,17 @@ const Editor: React.FC = () => {
 
     try {
       const requestBody = {
-        "contents": [
+        contents: [
           {
-            "role": "user",
-            "parts": [
+            role: "user",
+            parts: [
               {
-                "text": currentNote.content || ""
-              }
-            ]
-          }
-        ]
-      }
+                text: currentNote.content || "",
+              },
+            ],
+          },
+        ],
+      };
       const response = await fetch("/api/gemini", {
         method: "POST",
         headers: {
@@ -122,7 +124,9 @@ const Editor: React.FC = () => {
         const text = data.data.candidates[0].content.parts[0].text;
         setAiResponse(text);
       } else {
-        setAiResponse("Failed to get a response from AI: " + (data.message || "Unknown error"));
+        setAiResponse(
+          "Failed to get a response from AI: " + (data.message || "Unknown error")
+        );
       }
     } catch (error) {
       console.error("AI Request Error:", error);
@@ -132,6 +136,7 @@ const Editor: React.FC = () => {
 
   return (
     <section className="flex flex-col gap-6">
+      <AIAssistant onReloadNotes={loadNotes} /> {/* Add AIAssistant here */}
       <div className="flex items-center gap-4">
         <button
           className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg shadow hover:bg-green-600 transition-colors"
