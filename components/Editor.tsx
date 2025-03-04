@@ -8,7 +8,7 @@ import {
   deleteNote,
   saveFontPreference,
   getFontPreference,
-} from "../app/services/dbService";
+} from "../app/services/dbService"; // Adjusted import path assuming app structure
 import FontSelector from "./FontSelector";
 
 interface Note {
@@ -24,6 +24,9 @@ const Editor: React.FC = () => {
   // Font selection state
   const [isFontModalOpen, setIsFontModalOpen] = useState(false);
   const [selectedFont, setSelectedFont] = useState("Arial");
+
+  // AI response state
+  const [aiResponse, setAiResponse] = useState("");
 
   useEffect(() => {
     loadNotes();
@@ -50,7 +53,6 @@ const Editor: React.FC = () => {
     const linkId = "dynamic-font-link";
     let linkEl = document.getElementById(linkId) as HTMLLinkElement | null;
 
-    // If a link already exists, remove it before adding a new one
     if (linkEl) {
       linkEl.remove();
     }
@@ -87,10 +89,49 @@ const Editor: React.FC = () => {
     setCurrentNote(null);
   };
 
+  // Handle AI request for suggestions
+  const handleAiRequest = async () => {
+    if (!currentNote) {
+      setAiResponse("Please select or create a note first.");
+      return;
+    }
+
+    try {
+      const requestBody = {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": currentNote.content || ""
+              }
+            ]
+          }
+        ]
+      }
+      const response = await fetch("/api/gemini", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const data = await response.json();
+      if (data.success && data.data?.candidates?.length > 0) {
+        const text = data.data.candidates[0].content.parts[0].text;
+        setAiResponse(text);
+      } else {
+        setAiResponse("Failed to get a response from AI: " + (data.message || "Unknown error"));
+      }
+    } catch (error) {
+      console.error("AI Request Error:", error);
+      setAiResponse("An error occurred while communicating with Gemini AI.");
+    }
+  };
+
   return (
-    // Removed the inline fontFamily from here so it doesn't affect all children
     <section className="flex flex-col gap-6">
-      {/* Existing Button Row */}
       <div className="flex items-center gap-4">
         <button
           className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg shadow hover:bg-green-600 transition-colors"
@@ -109,16 +150,20 @@ const Editor: React.FC = () => {
             Save Note
           </button>
         )}
-        {/* Change Font Button */}
         <button
           className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg shadow hover:bg-purple-700 transition-colors"
           onClick={() => setIsFontModalOpen(true)}
         >
           Change Font
         </button>
+        <button
+          className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg shadow hover:bg-yellow-700 transition-colors"
+          onClick={handleAiRequest}
+        >
+          Get AI Suggestion
+        </button>
       </div>
 
-      {/* Editor UI: Apply selectedFont only to the note content */}
       <div className="editor-container p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-md">
         {currentNote ? (
           <textarea
@@ -128,7 +173,7 @@ const Editor: React.FC = () => {
               setCurrentNote({ ...currentNote, content: e.target.value })
             }
             placeholder="Edit your note..."
-            style={{ fontFamily: selectedFont }}  
+            style={{ fontFamily: selectedFont }}
           />
         ) : (
           <p className="text-gray-500 dark:text-gray-400">
@@ -137,7 +182,12 @@ const Editor: React.FC = () => {
         )}
       </div>
 
-      {/* Existing Note List */}
+      {aiResponse && (
+        <div className="mt-4 p-4 bg-gray-200 dark:bg-gray-700 rounded-md">
+          <p className="text-gray-800 dark:text-white">{aiResponse}</p>
+        </div>
+      )}
+
       <div className="note-list grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
         <AnimatePresence>
           {notes.map((note) => (
@@ -151,7 +201,7 @@ const Editor: React.FC = () => {
               <p
                 className="text-gray-800 dark:text-white cursor-pointer"
                 onClick={() => setCurrentNote(note)}
-                style={{ fontFamily: selectedFont }}  
+                style={{ fontFamily: selectedFont }}
               >
                 {note.content.slice(0, 20) || "Untitled Note"}
               </p>
@@ -166,7 +216,6 @@ const Editor: React.FC = () => {
         </AnimatePresence>
       </div>
 
-      {/* Font Selector Modal */}
       <FontSelector
         open={isFontModalOpen}
         onOpenChange={(val) => setIsFontModalOpen(val)}
