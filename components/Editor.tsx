@@ -9,10 +9,12 @@ import {
   deleteNote,
   saveFontPreference,
   getFontPreference,
+  replaceAllNotes,
 } from "../app/services/dbService";
 import FontSelector from "./FontSelector";
 import AIAssistant from "./AIAssistant";
 import TranslationPanel from "./TranslationPanel";
+import FileImportModal from "./FileImportModal";
 
 interface Note {
   id: string;
@@ -23,13 +25,14 @@ interface Note {
 const Editor: React.FC = () => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [currentNote, setCurrentNote] = useState<Note | null>(null);
-  const [isFontModalOpen, setIsFontModalOpen] = useState(false);
+  const [isFontModalOpen, setFontModalOpen] = useState(false);
   const [selectedFont, setSelectedFont] = useState("Arial");
   const [aiResponse, setAiResponse] = useState("");
   const [translationMode, setTranslationMode] = useState(false);
-  const [sourceText, setSourceText] = useState(""); // Added sourceText state
+  const [sourceText, setSourceText] = useState("");
   const [translatedText, setTranslatedText] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isImportModalOpen, setImportModalOpen] = useState(false);
 
   useEffect(() => {
     loadNotes();
@@ -88,7 +91,7 @@ const Editor: React.FC = () => {
   const handleSourceChange = (newText: string) => {
     setSourceText(newText);
     if (currentNote) {
-      setCurrentNote({ ...currentNote, content: newText }); // Sync currentNote with sourceText
+      setCurrentNote({ ...currentNote, content: newText });
     }
   };
 
@@ -132,7 +135,6 @@ const Editor: React.FC = () => {
     } else {
       setTranslationMode(!translationMode);
       if (translationMode) {
-        // Exiting translation mode, save currentNote with sourceText
         if (currentNote) {
           const updatedNote = { ...currentNote, content: sourceText };
           setCurrentNote(updatedNote);
@@ -140,9 +142,8 @@ const Editor: React.FC = () => {
           loadNotes();
         }
       } else {
-        // Entering translation mode, set sourceText from currentNote
         setSourceText(currentNote!.content);
-        setTranslatedText(""); // Clear previous translation
+        setTranslatedText("");
       }
     }
   };
@@ -181,6 +182,32 @@ const Editor: React.FC = () => {
       console.error("AI Request Error:", error);
       setAiResponse("An error occurred while communicating with Gemini AI.");
     }
+  };
+
+  const handleFileParsed = async (parsedNotes: string[]) => {
+    await replaceAllNotes(parsedNotes.map((content, index) => ({
+      id: String(Date.now() + index),
+      content,
+      createdAt: Date.now(),
+    })));
+    loadNotes();
+  };
+
+  const handleExport = (format: 'text' | 'json') => {
+    const noteContents = notes.map(note => note.content);
+    const data =
+      format === 'json'
+        ? JSON.stringify(noteContents, null, 2)
+        : noteContents.join('\n\n');
+
+    const blob = new Blob([data], {
+      type: format === 'json' ? 'application/json' : 'text/plain',
+    });
+
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `notes.${format === 'json' ? 'json' : 'txt'}`;
+    link.click();
   };
 
   return (
@@ -226,7 +253,7 @@ const Editor: React.FC = () => {
             )}
             <button
               className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg shadow hover:bg-purple-700 transition-colors"
-              onClick={() => setIsFontModalOpen(true)}
+              onClick={() => setFontModalOpen(true)}
             >
               Change Font
             </button>
@@ -236,6 +263,26 @@ const Editor: React.FC = () => {
             >
               Get AI Suggestion
             </button>
+            <button
+              className="p-2 bg-green-500 text-white rounded-md"
+              onClick={() => setImportModalOpen(true)}
+            >
+              Import Notes
+            </button>
+            <div className="flex gap-2">
+              <button
+                className="p-2 bg-blue-500 text-white rounded-md"
+                onClick={() => handleExport('text')}
+              >
+                Export as Text
+              </button>
+              <button
+                className="p-2 bg-blue-500 text-white rounded-md"
+                onClick={() => handleExport('json')}
+              >
+                Export as JSON
+              </button>
+            </div>
           </div>
           <div className="editor-container p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-md">
             {currentNote ? (
@@ -286,8 +333,13 @@ const Editor: React.FC = () => {
           </div>
           <FontSelector
             open={isFontModalOpen}
-            onOpenChange={(val) => setIsFontModalOpen(val)}
+            onOpenChange={(val) => setFontModalOpen(val)}
             onFontSelect={handleFontSelect}
+          />
+          <FileImportModal
+            isOpen={isImportModalOpen}
+            onClose={() => setImportModalOpen(false)}
+            onFileParsed={handleFileParsed}
           />
         </>
       )}

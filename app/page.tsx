@@ -7,7 +7,7 @@ const Home: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-r from-blue-50 to-blue-100 dark:from-gray-900 dark:to-gray-800 transition-colors">
       <Toolbar />
-      <main className="max-w-5xl mx-auto p-6 mt-6">
+      <main className="max-w-6xl mx-auto p-6 mt-6">
         <Editor />
       </main>
     </div>
