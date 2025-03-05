@@ -2,16 +2,17 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Trash, Plus } from "lucide-react";
+import { Trash, Plus, SplitIcon, ArrowDown } from "lucide-react";
 import {
   getAllNotes,
   saveNote,
   deleteNote,
   saveFontPreference,
   getFontPreference,
-} from "../app/services/dbService"; // Adjusted path as per your code
+} from "../app/services/dbService";
 import FontSelector from "./FontSelector";
-import AIAssistant from "./AIAssistant"; // Import the new component
+import AIAssistant from "./AIAssistant";
+import TranslationPanel from "./TranslationPanel";
 
 interface Note {
   id: string;
@@ -22,26 +23,30 @@ interface Note {
 const Editor: React.FC = () => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [currentNote, setCurrentNote] = useState<Note | null>(null);
-
-  // Font selection state
   const [isFontModalOpen, setIsFontModalOpen] = useState(false);
   const [selectedFont, setSelectedFont] = useState("Arial");
-
-  // AI response state
   const [aiResponse, setAiResponse] = useState("");
+  const [translationMode, setTranslationMode] = useState(false);
+  const [sourceText, setSourceText] = useState(""); // Added sourceText state
+  const [translatedText, setTranslatedText] = useState("");
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     loadNotes();
     loadFontPreference();
   }, []);
 
-  // Load notes from IndexedDB
+  useEffect(() => {
+    if (translationMode && currentNote) {
+      setSourceText(currentNote.content);
+    }
+  }, [currentNote, translationMode]);
+
   const loadNotes = async () => {
     const allNotes = await getAllNotes();
     setNotes(allNotes);
   };
 
-  // Load saved font preference
   const loadFontPreference = async () => {
     const savedFont = await getFontPreference();
     if (savedFont) {
@@ -50,33 +55,23 @@ const Editor: React.FC = () => {
     }
   };
 
-  // Inject <link> to load the Google Font
   const injectFontLink = (fontFamily: string) => {
     const linkId = "dynamic-font-link";
     let linkEl = document.getElementById(linkId) as HTMLLinkElement | null;
-
-    if (linkEl) {
-      linkEl.remove();
-    }
-
+    if (linkEl) linkEl.remove();
     linkEl = document.createElement("link");
     linkEl.id = linkId;
     linkEl.rel = "stylesheet";
-    linkEl.href = `https://fonts.googleapis.com/css2?family=${fontFamily.replace(
-      / /g,
-      "+"
-    )}:wght@400;700&display=swap`;
+    linkEl.href = `https://fonts.googleapis.com/css2?family=${fontFamily.replace(/ /g, "+")}:wght@400;700&display=swap`;
     document.head.appendChild(linkEl);
   };
 
-  // Handle user font selection
   const handleFontSelect = (fontFamily: string) => {
     setSelectedFont(fontFamily);
     injectFontLink(fontFamily);
     saveFontPreference(fontFamily);
   };
 
-  // Save or update the current note
   const handleSave = async () => {
     if (currentNote) {
       await saveNote(currentNote);
@@ -84,20 +79,79 @@ const Editor: React.FC = () => {
     }
   };
 
-  // Delete a note
   const handleDelete = async (id: string) => {
     await deleteNote(id);
     loadNotes();
     setCurrentNote(null);
   };
 
-  // Handle AI request for suggestions
+  const handleSourceChange = (newText: string) => {
+    setSourceText(newText);
+    if (currentNote) {
+      setCurrentNote({ ...currentNote, content: newText }); // Sync currentNote with sourceText
+    }
+  };
+
+  const handleTranslate = async () => {
+    if (!sourceText) return;
+    setLoading(true);
+    try {
+      const prompt = `Translate the following English text to Spanish: ${sourceText}`;
+      const requestBody = {
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: prompt,
+              },
+            ],
+          },
+        ],
+      };
+      const response = await fetch("/api/gemini", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+      const data = await response.json();
+      if (data.success && data.data?.candidates?.length > 0) {
+        const translation = data.data.candidates[0].content.parts[0].text;
+        setTranslatedText(translation);
+      }
+    } catch (error) {
+      console.error("Translation failed", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleTranslation = () => {
+    if (!currentNote && !translationMode) {
+      alert("Please select a note to enter translation mode.");
+    } else {
+      setTranslationMode(!translationMode);
+      if (translationMode) {
+        // Exiting translation mode, save currentNote with sourceText
+        if (currentNote) {
+          const updatedNote = { ...currentNote, content: sourceText };
+          setCurrentNote(updatedNote);
+          saveNote(updatedNote);
+          loadNotes();
+        }
+      } else {
+        // Entering translation mode, set sourceText from currentNote
+        setSourceText(currentNote!.content);
+        setTranslatedText(""); // Clear previous translation
+      }
+    }
+  };
+
   const handleAiRequest = async () => {
     if (!currentNote) {
       setAiResponse("Please select or create a note first.");
       return;
     }
-
     try {
       const requestBody = {
         contents: [
@@ -113,20 +167,15 @@ const Editor: React.FC = () => {
       };
       const response = await fetch("/api/gemini", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
       });
-
       const data = await response.json();
       if (data.success && data.data?.candidates?.length > 0) {
         const text = data.data.candidates[0].content.parts[0].text;
         setAiResponse(text);
       } else {
-        setAiResponse(
-          "Failed to get a response from AI: " + (data.message || "Unknown error")
-        );
+        setAiResponse("Failed to get a response from AI: " + (data.message || "Unknown error"));
       }
     } catch (error) {
       console.error("AI Request Error:", error);
@@ -136,96 +185,112 @@ const Editor: React.FC = () => {
 
   return (
     <section className="flex flex-col gap-6">
-      <AIAssistant onReloadNotes={loadNotes} /> {/* Add AIAssistant here */}
-      <div className="flex items-center gap-4">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Notes Editor</h2>
         <button
-          className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg shadow hover:bg-green-600 transition-colors"
-          onClick={() =>
-            setCurrentNote({ id: String(Date.now()), content: "", createdAt: Date.now() })
-          }
+          className="p-2 bg-blue-500 text-white rounded-md flex items-center gap-1"
+          onClick={handleToggleTranslation}
         >
-          <Plus size={20} />
-          New Note
-        </button>
-        {currentNote && (
-          <button
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 transition-colors"
-            onClick={handleSave}
-          >
-            Save Note
-          </button>
-        )}
-        <button
-          className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg shadow hover:bg-purple-700 transition-colors"
-          onClick={() => setIsFontModalOpen(true)}
-        >
-          Change Font
-        </button>
-        <button
-          className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg shadow hover:bg-yellow-700 transition-colors"
-          onClick={handleAiRequest}
-        >
-          Get AI Suggestion
+          {translationMode ? <SplitIcon size={20} /> : <ArrowDown size={20} />}
+          {translationMode ? "Exit Translation Mode" : "Enter Translation Mode"}
         </button>
       </div>
-
-      <div className="editor-container p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-md">
-        {currentNote ? (
-          <textarea
-            className="w-full min-h-[200px] p-2 bg-transparent text-gray-800 dark:text-white rounded-lg focus:outline-none resize-none"
-            value={currentNote.content}
-            onChange={(e) =>
-              setCurrentNote({ ...currentNote, content: e.target.value })
-            }
-            placeholder="Edit your note..."
-            style={{ fontFamily: selectedFont }}
-          />
-        ) : (
-          <p className="text-gray-500 dark:text-gray-400">
-            Select or create a note to start editing...
-          </p>
-        )}
-      </div>
-
-      {aiResponse && (
-        <div className="mt-4 p-4 bg-gray-200 dark:bg-gray-700 rounded-md">
-          <p className="text-gray-800 dark:text-white">{aiResponse}</p>
-        </div>
-      )}
-
-      <div className="note-list grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-        <AnimatePresence>
-          {notes.map((note) => (
-            <motion.div
-              key={note.id}
-              className="p-4 bg-gray-100 dark:bg-gray-700 rounded-lg shadow-sm flex items-center justify-between hover:shadow-md transition-shadow"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
+      {translationMode ? (
+        <TranslationPanel
+          sourceText={sourceText}
+          onSourceChange={handleSourceChange}
+          translatedText={translatedText}
+          onTranslate={handleTranslate}
+          loading={loading}
+        />
+      ) : (
+        <>
+          <AIAssistant onReloadNotes={loadNotes} />
+          <div className="flex items-center gap-4">
+            <button
+              className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg shadow hover:bg-green-600 transition-colors"
+              onClick={() =>
+                setCurrentNote({ id: String(Date.now()), content: "", createdAt: Date.now() })
+              }
             >
-              <p
-                className="text-gray-800 dark:text-white cursor-pointer"
-                onClick={() => setCurrentNote(note)}
-                style={{ fontFamily: selectedFont }}
-              >
-                {note.content.slice(0, 20) || "Untitled Note"}
-              </p>
+              <Plus size={20} />
+              New Note
+            </button>
+            {currentNote && (
               <button
-                className="text-red-500 ml-2 hover:text-red-600"
-                onClick={() => handleDelete(note.id)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 transition-colors"
+                onClick={handleSave}
               >
-                <Trash size={18} />
+                Save Note
               </button>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
-
-      <FontSelector
-        open={isFontModalOpen}
-        onOpenChange={(val) => setIsFontModalOpen(val)}
-        onFontSelect={handleFontSelect}
-      />
+            )}
+            <button
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg shadow hover:bg-purple-700 transition-colors"
+              onClick={() => setIsFontModalOpen(true)}
+            >
+              Change Font
+            </button>
+            <button
+              className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg shadow hover:bg-yellow-700 transition-colors"
+              onClick={handleAiRequest}
+            >
+              Get AI Suggestion
+            </button>
+          </div>
+          <div className="editor-container p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-md">
+            {currentNote ? (
+              <textarea
+                className="w-full min-h-[200px] p-2 bg-transparent text-gray-800 dark:text-white rounded-lg focus:outline-none resize-none"
+                value={currentNote.content}
+                onChange={(e) => setCurrentNote({ ...currentNote, content: e.target.value })}
+                placeholder="Edit your note..."
+                style={{ fontFamily: selectedFont }}
+              />
+            ) : (
+              <p className="text-gray-500 dark:text-gray-400">
+                Select or create a note to start editing...
+              </p>
+            )}
+          </div>
+          {aiResponse && (
+            <div className="mt-4 p-4 bg-gray-200 dark:bg-gray-700 rounded-md">
+              <p className="text-gray-800 dark:text-white">{aiResponse}</p>
+            </div>
+          )}
+          <div className="note-list grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            <AnimatePresence>
+              {notes.map((note) => (
+                <motion.div
+                  key={note.id}
+                  className="p-4 bg-gray-100 dark:bg-gray-700 rounded-lg shadow-sm flex items-center justify-between hover:shadow-md transition-shadow"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                >
+                  <p
+                    className="text-gray-800 dark:text-white cursor-pointer"
+                    onClick={() => setCurrentNote(note)}
+                    style={{ fontFamily: selectedFont }}
+                  >
+                    {note.content.slice(0, 20) || "Untitled Note"}
+                  </p>
+                  <button
+                    className="text-red-500 ml-2 hover:text-red-600"
+                    onClick={() => handleDelete(note.id)}
+                  >
+                    <Trash size={18} />
+                  </button>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+          <FontSelector
+            open={isFontModalOpen}
+            onOpenChange={(val) => setIsFontModalOpen(val)}
+            onFontSelect={handleFontSelect}
+          />
+        </>
+      )}
     </section>
   );
 };
