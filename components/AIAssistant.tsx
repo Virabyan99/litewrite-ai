@@ -2,6 +2,7 @@
 "use client";
 import React, { useState } from "react";
 import { getAllNotes, replaceAllNotes } from "../app/services/dbService";
+import { getDeviceId } from "@/app/utils/deviceId";
 
 interface Note {
   id: string;
@@ -20,12 +21,15 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onReloadNotes }) => {
   const handleGenerateNotes = async () => {
     setLoading(true);
     try {
+      // Generate device ID
+      const deviceId = await getDeviceId();
+
       // Fetch all existing notes
       const allNotes = await getAllNotes();
       const existingNotesText = allNotes.map((note) => note.content).join("\n");
       const fullPrompt = `Given the current notes:\n${existingNotesText}\nGenerate a new set of notes about ${prompt}. Return only the JSON array of strings, where each string is the content of a note. Do not include any additional text, code blocks, or formatting.`;
 
-      // Send request to Gemini API
+      // Send request to Gemini API with device ID
       const requestBody = {
         contents: [
           {
@@ -41,7 +45,10 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onReloadNotes }) => {
 
       const response = await fetch("/api/gemini", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-device-id": deviceId, // Add device ID to headers
+        },
         body: JSON.stringify(requestBody),
       });
 

@@ -15,6 +15,7 @@ import FontSelector from "./FontSelector";
 import AIAssistant from "./AIAssistant";
 import TranslationPanel from "./TranslationPanel";
 import FileImportModal from "./FileImportModal";
+import { getDeviceId } from "@/app/utils/deviceId";
 
 interface Note {
   id: string;
@@ -96,9 +97,10 @@ const Editor: React.FC = () => {
   };
 
   const handleTranslate = async () => {
-    if (!sourceText) return;
+    if (!sourceText.trim()) return; // Prevent empty translations
     setLoading(true);
     try {
+      const deviceId = await getDeviceId(); // Retrieve the device ID
       const prompt = `Translate the following English text to Spanish: ${sourceText}`;
       const requestBody = {
         contents: [
@@ -114,16 +116,23 @@ const Editor: React.FC = () => {
       };
       const response = await fetch("/api/gemini", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+           "x-device-id": deviceId, // Add the device ID to the headers
+        },
         body: JSON.stringify(requestBody),
       });
       const data = await response.json();
       if (data.success && data.data?.candidates?.length > 0) {
         const translation = data.data.candidates[0].content.parts[0].text;
-        setTranslatedText(translation);
+        setTranslatedText(translation); // Update translated text
+      } else {
+        console.error("Translation failed:", data.message || "Unknown error");
+        alert("Failed to translate. Please try again.");
       }
     } catch (error) {
-      console.error("Translation failed", error);
+      console.error("Translation failed:", error);
+      alert("An error occurred while translating.");
     } finally {
       setLoading(false);
     }
@@ -150,39 +159,39 @@ const Editor: React.FC = () => {
 
   const handleAiRequest = async () => {
     if (!currentNote) {
-      setAiResponse("Please select or create a note first.");
-      return;
+        setAiResponse("Please select or create a note first.");
+        return;
     }
+    const deviceId = await getDeviceId();
     try {
-      const requestBody = {
-        contents: [
-          {
-            role: "user",
-            parts: [
-              {
-                text: currentNote.content || "",
-              },
-            ],
-          },
-        ],
-      };
-      const response = await fetch("/api/gemini", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
-      const data = await response.json();
-      if (data.success && data.data?.candidates?.length > 0) {
-        const text = data.data.candidates[0].content.parts[0].text;
-        setAiResponse(text);
-      } else {
-        setAiResponse("Failed to get a response from AI: " + (data.message || "Unknown error"));
-      }
+        const requestBody = {
+            contents: [{ role: "user", parts: [{ text: currentNote.content || "" }] }],
+        };
+        const response = await fetch("/api/gemini", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "x-device-id": deviceId,
+            },
+            body: JSON.stringify(requestBody),
+        });
+
+        if (response.status === 429) {
+            setAiResponse("Rate limit exceeded. Please try again later.");
+            return;
+        }
+
+        const data = await response.json();
+        if (data.success && data.data?.candidates?.length > 0) {
+            setAiResponse(data.data.candidates[0].content.parts[0].text);
+        } else {
+            setAiResponse("Failed to get a response from AI: " + (data.message || "Unknown error"));
+        }
     } catch (error) {
-      console.error("AI Request Error:", error);
-      setAiResponse("An error occurred while communicating with Gemini AI.");
+        console.error("AI Request Error:", error);
+        setAiResponse("An error occurred while communicating with Gemini AI.");
     }
-  };
+};
 
   const handleFileParsed = async (parsedNotes: string[]) => {
     await replaceAllNotes(parsedNotes.map((content, index) => ({

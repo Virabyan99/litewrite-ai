@@ -2,6 +2,7 @@
 "use client";
 import React, { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { getDeviceId } from "@/app/utils/deviceId";
 
 interface FileImportModalProps {
   isOpen: boolean;
@@ -51,6 +52,7 @@ const FileImportModal: React.FC<FileImportModalProps> = ({ isOpen, onClose, onFi
     if (!fileContent) return;
     setLoading(true);
     try {
+      const deviceId = await getDeviceId(); // Retrieve the device ID
       const prompt = `You are given a text file content. Your task is to parse this content into a list of notes, where each note is a separate string. Return only the JSON array of strings, without any additional text, code blocks, or formatting.\n\nExample:\nIf the text is:\n- Note 1\n- Note 2\nThen, the JSON array should be:\n["Note 1", "Note 2"]\nIf the text has paragraphs, each paragraph should be considered a separate note.\n\nText:\n${fileContent}`;
       const requestBody = {
         contents: [
@@ -66,14 +68,17 @@ const FileImportModal: React.FC<FileImportModalProps> = ({ isOpen, onClose, onFi
       };
       const response = await fetch("/api/gemini", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-device-id": deviceId, // Add the device ID to the headers
+        },
         body: JSON.stringify(requestBody),
       });
       const data = await response.json();
       if (data.success && data.data?.candidates?.length > 0) {
         const aiResponseText = data.data.candidates[0].content.parts[0].text;
         console.log("AI Response Text:", aiResponseText); // Log for debugging
-
+  
         // Clean the response to remove Markdown code blocks
         let cleanedResponse = aiResponseText;
         if (cleanedResponse.startsWith("```json\n")) {
@@ -89,7 +94,7 @@ const FileImportModal: React.FC<FileImportModalProps> = ({ isOpen, onClose, onFi
             cleanedResponse = cleanedResponse.substring(0, lastBacktickIndex).trim();
           }
         }
-
+  
         try {
           const parsedNotes = JSON.parse(cleanedResponse);
           if (Array.isArray(parsedNotes)) {
