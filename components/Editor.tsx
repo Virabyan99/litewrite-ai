@@ -1,6 +1,5 @@
-// app/components/Editor.tsx
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Trash, Plus, SplitIcon, ArrowDown } from "lucide-react";
 import {
@@ -15,6 +14,8 @@ import FontSelector from "./FontSelector";
 import AIAssistant from "./AIAssistant";
 import TranslationPanel from "./TranslationPanel";
 import FileImportModal from "./FileImportModal";
+import FuzzySearch from "./FuzzySearch"; // Import the new component
+import Fuse from 'fuse.js'; // Import Fuse.js
 import { getDeviceId } from "@/app/utils/deviceId";
 
 interface Note {
@@ -25,6 +26,8 @@ interface Note {
 
 const Editor: React.FC = () => {
   const [notes, setNotes] = useState<Note[]>([]);
+  const [fuse, setFuse] = useState<Fuse<Note> | null>(null); // Add Fuse instance state
+  const [searchResults, setSearchResults] = useState<Note[]>([]); // Add search results state
   const [currentNote, setCurrentNote] = useState<Note | null>(null);
   const [isFontModalOpen, setFontModalOpen] = useState(false);
   const [selectedFont, setSelectedFont] = useState("Arial");
@@ -49,6 +52,13 @@ const Editor: React.FC = () => {
   const loadNotes = async () => {
     const allNotes = await getAllNotes();
     setNotes(allNotes);
+    // Initialize Fuse.js with notes
+    const fuseInstance = new Fuse(allNotes, {
+      keys: ['content'], // Search on note content
+      includeScore: true, // Include match scores
+      threshold: 0.3, // Fuzzy matching threshold (0 = exact, 1 = loose)
+    });
+    setFuse(fuseInstance);
   };
 
   const loadFontPreference = async () => {
@@ -79,13 +89,13 @@ const Editor: React.FC = () => {
   const handleSave = async () => {
     if (currentNote) {
       await saveNote(currentNote);
-      loadNotes();
+      loadNotes(); // Reload notes and re-initialize Fuse.js
     }
   };
 
   const handleDelete = async (id: string) => {
     await deleteNote(id);
-    loadNotes();
+    loadNotes(); // Reload notes and re-initialize Fuse.js
     setCurrentNote(null);
   };
 
@@ -97,20 +107,16 @@ const Editor: React.FC = () => {
   };
 
   const handleTranslate = async () => {
-    if (!sourceText.trim()) return; // Prevent empty translations
+    if (!sourceText.trim()) return;
     setLoading(true);
     try {
-      const deviceId = await getDeviceId(); // Retrieve the device ID
+      const deviceId = await getDeviceId();
       const prompt = `Translate the following English text to Spanish: ${sourceText}`;
       const requestBody = {
         contents: [
           {
             role: "user",
-            parts: [
-              {
-                text: prompt,
-              },
-            ],
+            parts: [{ text: prompt }],
           },
         ],
       };
@@ -118,14 +124,13 @@ const Editor: React.FC = () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-           "x-device-id": deviceId, // Add the device ID to the headers
+          "x-device-id": deviceId,
         },
         body: JSON.stringify(requestBody),
       });
       const data = await response.json();
       if (data.success && data.data?.candidates?.length > 0) {
-        const translation = data.data.candidates[0].content.parts[0].text;
-        setTranslatedText(translation); // Update translated text
+        setTranslatedText(data.data.candidates[0].content.parts[0].text);
       } else {
         console.error("Translation failed:", data.message || "Unknown error");
         alert("Failed to translate. Please try again.");
@@ -159,39 +164,39 @@ const Editor: React.FC = () => {
 
   const handleAiRequest = async () => {
     if (!currentNote) {
-        setAiResponse("Please select or create a note first.");
-        return;
+      setAiResponse("Please select or create a note first.");
+      return;
     }
     const deviceId = await getDeviceId();
     try {
-        const requestBody = {
-            contents: [{ role: "user", parts: [{ text: currentNote.content || "" }] }],
-        };
-        const response = await fetch("/api/gemini", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "x-device-id": deviceId,
-            },
-            body: JSON.stringify(requestBody),
-        });
+      const requestBody = {
+        contents: [{ role: "user", parts: [{ text: currentNote.content || "" }] }],
+      };
+      const response = await fetch("/api/gemini", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-device-id": deviceId,
+        },
+        body: JSON.stringify(requestBody),
+      });
 
-        if (response.status === 429) {
-            setAiResponse("Rate limit exceeded. Please try again later.");
-            return;
-        }
+      if (response.status === 429) {
+        setAiResponse("Rate limit exceeded. Please try again later.");
+        return;
+      }
 
-        const data = await response.json();
-        if (data.success && data.data?.candidates?.length > 0) {
-            setAiResponse(data.data.candidates[0].content.parts[0].text);
-        } else {
-            setAiResponse("Failed to get a response from AI: " + (data.message || "Unknown error"));
-        }
+      const data = await response.json();
+      if (data.success && data.data?.candidates?.length > 0) {
+        setAiResponse(data.data.candidates[0].content.parts[0].text);
+      } else {
+        setAiResponse("Failed to get a response from AI: " + (data.message || "Unknown error"));
+      }
     } catch (error) {
-        console.error("AI Request Error:", error);
-        setAiResponse("An error occurred while communicating with Gemini AI.");
+      console.error("AI Request Error:", error);
+      setAiResponse("An error occurred while communicating with Gemini AI.");
     }
-};
+  };
 
   const handleFileParsed = async (parsedNotes: string[]) => {
     await replaceAllNotes(parsedNotes.map((content, index) => ({
@@ -218,6 +223,14 @@ const Editor: React.FC = () => {
     link.download = `notes.${format === 'json' ? 'json' : 'txt'}`;
     link.click();
   };
+
+  // Callback to handle search results from FuzzySearch
+  const handleSearchResults = useCallback((results: Note[]) => {
+    setSearchResults(results);
+  }, []);
+
+  // Use search results if available, otherwise show all notes
+  const displayedNotes = searchResults.length > 0 ? searchResults : notes;
 
   return (
     <section className="flex flex-col gap-6">
@@ -293,6 +306,8 @@ const Editor: React.FC = () => {
               </button>
             </div>
           </div>
+          {/* Add the FuzzySearch component */}
+          <FuzzySearch fuse={fuse} onResults={handleSearchResults} />
           <div className="editor-container p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-md">
             {currentNote ? (
               <textarea
@@ -315,7 +330,7 @@ const Editor: React.FC = () => {
           )}
           <div className="note-list grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             <AnimatePresence>
-              {notes.map((note) => (
+              {displayedNotes.map((note) => (
                 <motion.div
                   key={note.id}
                   className="p-4 bg-gray-100 dark:bg-gray-700 rounded-lg shadow-sm flex items-center justify-between hover:shadow-md transition-shadow"
